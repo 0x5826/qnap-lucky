@@ -71,8 +71,8 @@ pkg_post_install()
 	chmod -Rf 755 "$target_path/conf" 2>/dev/null
 
 	# 2. 将 Lucky 官方高清抗锯齿图标刷新至 QTS 桌面与 App Center 图标库
-	local icon_src="$target_path/icons"
-	[ ! -d "$icon_src" ] && icon_src="$target_path/shared/icons"
+	local icon_src="$target_path/shared/icons"
+	[ ! -d "$icon_src" ] && icon_src="$target_path/icons"
 	if [ -d "$icon_src" ]; then
 		for sys_icon_dir in /home/httpd/RSS/images /home/httpd/cgi-bin/images /home/httpd/v3_images; do
 			if [ -d "$sys_icon_dir" ]; then

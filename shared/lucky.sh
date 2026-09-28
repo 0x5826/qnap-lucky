@@ -117,7 +117,23 @@ ensure_web_symlinks() {
     fi
 }
 
+ensure_system_icons() {
+    local icon_src="$QPKG_ROOT/shared/icons"
+    [ ! -d "$icon_src" ] && icon_src="$QPKG_ROOT/icons"
+    if [ -d "$icon_src" ]; then
+        if [ ! -f "/home/httpd/cgi-bin/images/lucky_100.gif" ] || [ ! -f "/home/httpd/RSS/images/lucky_100.gif" ] || [ ! -f "/home/httpd/v3_images/lucky_100.gif" ]; then
+            for sys_icon_dir in /home/httpd/RSS/images /home/httpd/cgi-bin/images /home/httpd/v3_images; do
+                if [ -d "$sys_icon_dir" ]; then
+                    cp -f "$icon_src"/* "$sys_icon_dir/" 2>/dev/null
+                fi
+            done
+            touch /etc/config/qpkg.conf 2>/dev/null
+        fi
+    fi
+}
+
 ensure_web_symlinks
+ensure_system_icons
 
 case "$1" in
   start)
