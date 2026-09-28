@@ -46,6 +46,23 @@ function is_process_lucky($pid) {
     return true;
 }
 
+function atomic_write_file($file_path, $content, $perms = 0666) {
+    $dir = dirname($file_path);
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $tmp_file = $file_path . '.' . uniqid('tmp_', true);
+    $written = @file_put_contents($tmp_file, $content, LOCK_EX);
+    if ($written !== false) {
+        @chmod($tmp_file, $perms);
+        if (@rename($tmp_file, $file_path)) {
+            return true;
+        }
+        @unlink($tmp_file);
+    }
+    return false;
+}
+
 if ($action === 'get_status') {
     // 1. 检查运行状态与 PID
     $is_running = false;
@@ -88,7 +105,7 @@ if ($action === 'get_status') {
             if (json_last_error() === JSON_ERROR_NONE) {
                 $info_data = $decoded;
                 if (is_dir($conf_dir) && is_writable($conf_dir)) {
-                    @file_put_contents($info_cache_file, $info_raw);
+                    atomic_write_file($info_cache_file, $info_raw, 0666);
                 }
             }
         }
@@ -220,8 +237,8 @@ if ($action === 'set_autostart') {
             $settings_data = array_merge($existing, $settings_data);
         }
     }
-    @file_put_contents($settings_file, json_encode($settings_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    @chmod($settings_file, 0666);
+    $json_content = json_encode($settings_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    atomic_write_file($settings_file, $json_content, 0666);
 
     $is_on = ($target_val === 1);
     echo json_encode([

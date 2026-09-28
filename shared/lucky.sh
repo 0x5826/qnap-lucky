@@ -109,8 +109,10 @@ ensure_web_symlinks() {
         for target_web in "$APACHE_ROOT" /share/Web /share/Qweb /share/CACHEDEV1_DATA/Web; do
             if [ -d "$target_web" ]; then
                 if [ ! -L "$target_web/lucky" ] || [ "$(readlink "$target_web/lucky" 2>/dev/null)" != "$web_src" ]; then
-                    rm -rf "$target_web/lucky" 2>/dev/null
-                    ln -sf "$web_src" "$target_web/lucky" 2>/dev/null
+                    # 采用原子临时链接替换，消除删除与新建之间的毫秒级时隙空窗
+                    ln -sfn "$web_src" "$target_web/.lucky_tmp.$$" 2>/dev/null && \
+                    mv -Tf "$target_web/.lucky_tmp.$$" "$target_web/lucky" 2>/dev/null || \
+                    (rm -rf "$target_web/lucky" 2>/dev/null; ln -sf "$web_src" "$target_web/lucky" 2>/dev/null)
                 fi
             fi
         done
@@ -169,8 +171,27 @@ case "$1" in
         exit 0
     fi
 
-    echo "Starting $QPKG_NAME..."
+    # 原子目录排他锁：杜绝并发触发导致重复拉起
+    LOCK_DIR="$CONF_DIR/.start.lock"
     mkdir -p "$CONF_DIR" 2>/dev/null
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        LOCK_AGE=0
+        if which stat >/dev/null 2>&1; then
+            LOCK_MTIME=$(stat -c %Y "$LOCK_DIR" 2>/dev/null || stat -f %m "$LOCK_DIR" 2>/dev/null || echo 0)
+            NOW=$(date +%s)
+            LOCK_AGE=$((NOW - LOCK_MTIME))
+        fi
+        if [ "$LOCK_AGE" -gt 15 ]; then
+            rm -rf "$LOCK_DIR" 2>/dev/null
+            mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+        else
+            echo "$QPKG_NAME start is already in progress, skipping duplicate call."
+            exit 0
+        fi
+    fi
+    trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
+
+    echo "Starting $QPKG_NAME..."
 
     detect_binary
     if [ ! -x "$CORE_BIN" ]; then
@@ -232,15 +253,23 @@ case "$1" in
     # 启动 Lucky 核心进程（前台转后台，并指定持久化配置目录）
     eval "\"$CORE_BIN\" -cd \"$CONF_DIR\" >> \"$LOG_FILE\" 2>&1 &"
 
-    # 等待进程就绪并动态捕获实际 PID
-    sleep 1
+    # 弹性微循环探测进程就绪，杜绝固定 sleep 1 在低配 CPU 误判或快启动无谓阻塞
+    STARTED=0
+    for i in $(seq 1 10); do
+        sleep 0.3
+        if sync_pid_file; then
+            STARTED=1
+            break
+        fi
+    done
     chmod 666 "$LOG_FILE" 2>/dev/null || true
-    if sync_pid_file; then
+
+    if [ "$STARTED" -eq 1 ]; then
         CURRENT_PID=$(cat "$PID_FILE" 2>/dev/null)
         log_sys "Lucky 服务已成功启动 (PID: $CURRENT_PID)"
         echo "$QPKG_NAME started successfully (PID: $CURRENT_PID)."
     else
-        echo "Error: Failed to start $QPKG_NAME. Check logs in $LOG_FILE"
+        echo "Error: Failed to start $QPKG_NAME within 3s. Check logs in $LOG_FILE"
         exit 1
     fi
     ;;
@@ -273,8 +302,8 @@ case "$1" in
         fi
     fi
 
-    # 兜底：精确杀除名为 lucky 且匹配路径的残留
-    killall -9 lucky 2>/dev/null
+    # 兜底：精确杀除名为 lucky 或 lucky_wanji 的残留
+    killall -9 lucky lucky_wanji 2>/dev/null || true
 
     rm -f "$PID_FILE" 2>/dev/null
 

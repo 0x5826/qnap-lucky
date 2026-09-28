@@ -4,8 +4,8 @@
 ######################################################################
 
 PKG_MAIN_REMOVE="{
-	# 彻底清理可能残留的进程
-	killall -9 lucky 2>/dev/null
+	# 彻底清理可能残留的进程（兼容普通版与万吉版）
+	killall -9 lucky lucky_wanji 2>/dev/null || true
 
 	# 清理系统级 CLI 软链接
 	rm -f /usr/sbin/lucky /usr/bin/lucky /usr/local/bin/lucky 2>/dev/null
@@ -65,7 +65,10 @@ pkg_post_install()
 	# 1. 优先还原用户热备份的配置，确保升级 100% 保持原有规则与证书
 	if [ -d "/tmp/.lucky_upgrade_backup" ]; then
 		cp -rf /tmp/.lucky_upgrade_backup/* "$target_path/conf/" 2>/dev/null
-		rm -rf /tmp/.lucky_upgrade_backup 2>/dev/null
+		# 仅在目标配置目录确实存在有效文件时才安全清理临时备份，防止异常时丢失用户数据
+		if [ -d "$target_path/conf" ] && [ "$(ls -A "$target_path/conf" 2>/dev/null)" ]; then
+			rm -rf /tmp/.lucky_upgrade_backup 2>/dev/null
+		fi
 	fi
 
 	chmod -Rf 755 "$target_path/conf" 2>/dev/null
