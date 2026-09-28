@@ -1,0 +1,274 @@
+name: Auto Check & Release Lucky QPKG
+
+on:
+  schedule:
+    # 每周一 UTC 00:00 (北京时间早 08:00) 定期自动巡检上游官方版本
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: '指定构建版本（留空则自动生成修订版本，例如 2.27.2-20260928）'
+        required: false
+        default: ''
+      force_build:
+        description: '是否强制重新构建'
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+    paths:
+      - 'shared/**'
+      - 'icons/**'
+      - 'qpkg.cfg'
+      - 'qpkg.cfg.wanji'
+      - 'package_routines'
+      - 'scripts/**'
+      - '.github/workflows/auto-release.yml'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-build:
+    name: Build and Release Lucky QPKG
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine Build Target & Version
+        id: version_check
+        run: |
+          set -e
+
+          # 1. 本地基准版本
+          BASE_VER="$(cat shared/version 2>/dev/null || echo '2.27.2')"
+          BASE_VER="${BASE_VER#v}"
+          BUILD_DATE=$(date +'%Y%m%d')
+          MMDD=$(date +'%m%d')
+          echo "本地仓库基准版本: $BASE_VER (构建日期: ${BUILD_DATE})"
+
+          INPUT_VER="${{ github.event.inputs.target_version }}"
+          FORCE_BUILD="${{ github.event.inputs.force_build }}"
+          TAG_REF="${{ github.ref_name }}"
+          EVENT="${{ github.event_name }}"
+
+          SHOULD_BUILD="false"
+          TARGET_VER="$BASE_VER"
+          TAG_NAME="v$BASE_VER"
+
+          if [[ "$EVENT" == "push" && "$TAG_REF" =~ ^v[0-9] ]]; then
+            TARGET_VER="${TAG_REF#v}"
+            TAG_NAME="$TAG_REF"
+            SHOULD_BUILD="true"
+            echo "触发模式: Tag 推送 ($TAG_REF) -> 启动全量构建"
+          elif [[ "$EVENT" == "push" ]]; then
+            TARGET_VER="${BASE_VER}-${BUILD_DATE}"
+            TAG_NAME="v${TARGET_VER}"
+            SHOULD_BUILD="true"
+            echo "触发模式: 核心文件变更推送 -> 生成日期修订版 Release: $TAG_NAME"
+          elif [[ "$EVENT" == "workflow_dispatch" ]]; then
+            if [ -n "$INPUT_VER" ]; then
+              TARGET_VER="${INPUT_VER#v}"
+              TAG_NAME="v${TARGET_VER}"
+            else
+              TARGET_VER="${BASE_VER}-${BUILD_DATE}"
+              TAG_NAME="v${TARGET_VER}"
+            fi
+            SHOULD_BUILD="true"
+            echo "触发模式: 手动触发 -> 生成构建版本: $TAG_NAME"
+          elif [[ "$EVENT" == "schedule" ]]; then
+            echo "触发模式: 每周定时巡检上游官方版本..."
+            UPSTREAM_TAG=$(gh release view -R gdy666/lucky --json tagName -q .tagName 2>/dev/null || curl -sSL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/gdy666/lucky/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || true)
+            if [ -n "$UPSTREAM_TAG" ]; then
+              UPSTREAM_VER="${UPSTREAM_TAG#v}"
+              echo "官方最新版本: $UPSTREAM_VER (本地基准: $BASE_VER)"
+              if [ "$UPSTREAM_VER" != "$BASE_VER" ]; then
+                TARGET_VER="$UPSTREAM_VER"
+                TAG_NAME="v${UPSTREAM_VER}"
+                SHOULD_BUILD="true"
+                echo "检测到官方新版本升级，启动全量发布！"
+              else
+                echo "当前已与官方最新版本保持一致，本次巡检无需构建。"
+              fi
+            else
+              echo "未能获取到官方最新 Release Tag，跳过构建。"
+            fi
+          fi
+
+          # 规范 QPKG_VER: 纯点分格式且 <= 10 字符
+          TARGET_CORE="${TARGET_VER%%-*}"
+          INTERNAL_VER="${TARGET_CORE}.${MMDD}"
+          if [ ${#INTERNAL_VER} -gt 10 ]; then
+            INTERNAL_VER="${TARGET_CORE}"
+          fi
+
+          echo "target_version=$TARGET_VER" >> $GITHUB_OUTPUT
+          echo "internal_version=$INTERNAL_VER" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup QDK Build Environment
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential p7zip-full bc curl unzip rsync
+
+          # 下载官方 QDK 源码
+          wget -q https://github.com/qnap-dev/QDK/archive/refs/tags/v2.3.14.tar.gz
+          tar -xzf v2.3.14.tar.gz
+
+          # 编译关键签名校验工具 qpkg_encrypt
+          gcc -O2 -o qpkg_encrypt QDK-2.3.14/src/qpkg_encrypt.c
+          sudo cp qpkg_encrypt /usr/local/bin/
+          sudo cp qpkg_encrypt /usr/bin/
+          sudo cp qpkg_encrypt /bin/
+
+          # 部署 QDK 核心文件与配置
+          sudo mkdir -p /usr/share/QDK /etc/config
+          sudo cp -rf QDK-2.3.14/shared/* /usr/share/QDK/
+          sudo chmod +x /usr/share/QDK/bin/*
+          sudo ln -sf /usr/share/QDK/bin/qbuild /usr/local/bin/qbuild
+
+          sudo cp /usr/share/QDK/qdk.conf /etc/config/qdk.conf
+          sudo sed -i 's|^QDK_PATH_P=.*|QDK_PATH_P=/usr/share|' /etc/config/qdk.conf
+          sudo sed -i 's|^QDK_PATH=.*|QDK_PATH=/usr/share/QDK|' /etc/config/qdk.conf
+
+          qbuild --version || true
+          which qpkg_encrypt || true
+
+      - name: Prepare Binaries
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          TARGET_VER="${{ steps.version_check.outputs.target_version }}"
+          CORE_VER="${TARGET_VER%%-*}"
+          echo "正在拉取 Lucky & Lucky-Wanji v${CORE_VER} 二进制程序..."
+          chmod +x scripts/download_binaries.sh
+          ./scripts/download_binaries.sh "${CORE_VER}"
+          echo "${CORE_VER}" > shared/version
+
+      - name: Build QPKG Packages (Standard & Wanji)
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          TARGET_VER="${{ steps.version_check.outputs.target_version }}"
+          INTERNAL_VER="${{ steps.version_check.outputs.internal_version }}"
+          mkdir -p release
+          rm -f release/*.qpkg release/*.md5
+
+          build_package() {
+            local edition="$1"      # lucky or lucky-wanji
+            local cfg_file="$2"     # qpkg.cfg or qpkg.cfg.wanji
+            local arch="$3"         # x86_64 or arm_64
+            local bin_src="$4"      # lucky or lucky_wanji
+
+            echo "=== 构建 $edition ($arch) ==="
+            sudo rm -rf build_pkg
+            mkdir -p "build_pkg/$arch" build_pkg/icons build_pkg/shared
+            cp -r package_routines build_pkg/
+            cp -r "$cfg_file" build_pkg/qpkg.cfg
+            cp -r icons/* build_pkg/icons/
+            cp -r shared/* build_pkg/shared/
+            cp "$arch/$bin_src" "build_pkg/$arch/lucky"
+
+            chmod +x build_pkg/package_routines build_pkg/shared/lucky.sh "build_pkg/$arch/lucky" || true
+            if grep -q "^QPKG_DIR=" build_pkg/qpkg.cfg; then
+              sed -i "s/^QPKG_DIR=.*/QPKG_DIR=\"${arch}\"/" build_pkg/qpkg.cfg
+            else
+              echo "QPKG_DIR=\"${arch}\"" >> build_pkg/qpkg.cfg
+            fi
+            sed -i "s/^QPKG_VER=.*/QPKG_VER=\"${INTERNAL_VER}\"/" build_pkg/qpkg.cfg
+            sudo chown -R root:root build_pkg/
+            (cd build_pkg && sudo qbuild --build-dir ../release)
+            sudo rm -rf build_pkg
+            sudo chown -R $USER:$USER release/
+
+            # 统一产物命名为规范的带日期文件名 (避免同源同目标 mv 报错中断)
+            local output_pkg="release/${edition}_${INTERNAL_VER}_${arch}.qpkg"
+            local target_pkg="release/${edition}_${TARGET_VER}_${arch}.qpkg"
+            if [ -f "$output_pkg" ] && [ "$output_pkg" != "$target_pkg" ]; then
+              mv -f "$output_pkg" "$target_pkg"
+            fi
+          }
+
+          # 1. 普通标准版 (lucky)
+          build_package "lucky" "qpkg.cfg" "x86_64" "lucky"
+          build_package "lucky" "qpkg.cfg" "arm_64" "lucky"
+
+          # 2. 全功能万吉版 (lucky-wanji)
+          build_package "lucky-wanji" "qpkg.cfg.wanji" "x86_64" "lucky_wanji"
+          build_package "lucky-wanji" "qpkg.cfg.wanji" "arm_64" "lucky_wanji"
+
+          # 3. 计算 MD5 校验和
+          cd release
+          rm -f *.md5
+          for f in *.qpkg; do
+            [ -f "$f" ] && md5sum "$f" > "${f}.md5"
+          done
+          echo "=== 构建产物清单 ==="
+          ls -lh
+
+      - name: Clean Existing Release Assets
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          TAG_NAME="${{ steps.version_check.outputs.tag_name }}"
+          echo "检查并清理 Release $TAG_NAME 中的旧资产文件，确保全量强制替换..."
+          (gh release view "$TAG_NAME" --json assets --jq '.assets[].name' 2>/dev/null || true) | while read -r asset; do
+            if [ -n "$asset" ]; then
+              echo "删除旧资产: $asset"
+              gh release delete-asset "$TAG_NAME" "$asset" --yes || true
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish GitHub Release
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ steps.version_check.outputs.tag_name }}"
+          name: "Lucky QPKG ${{ steps.version_check.outputs.tag_name }}"
+          draft: false
+          prerelease: false
+          files: |
+            release/*.qpkg
+            release/*.md5
+          body: |
+            ### 🍀 Lucky 威联通 QNAP 原生插件发布 (${{ steps.version_check.outputs.tag_name }})
+
+            本项目为威联通 QTS 打造官方原生 QPKG 插件，实现零虚拟化损耗、极致性能与桌面深度融合。
+
+            #### 📦 版本说明
+            - **标准版 (`lucky`)**：轻量精简，集成 DDNS、IPv6/IPv4 端口转发、反向代理、STUN 穿透、ACME 自动证书、网络唤醒 (WOL)；
+            - **全功能万吉版 (`lucky-wanji`)**：全量集成 gRPC 反代、Coraza WAF 安全引擎、FileBrowser 网页文件管理、rclone 多网盘挂载、Cloudflare Tunnel 穿透与 DLNA 服务。
+
+            #### 🌟 核心特性
+            1. **生命周期闭环管理**：深度解决 Lucky 修改配置内部自重启导致脱离上层管理的问题，支持 PID 动态自愈与全景优雅/强制停止；
+            2. **QTS 桌面轻量面板**：点击桌面图标直接打开管理面板，展示版本、架构、实时 PID、CPU/内存指标与动态直达入口；
+            3. **应急运维指令台**：面板提供一键重置密码 (`666:666`)、取消安全入口 (`SafeURL`)、解除登录锁定、禁用 2FA 与实时执行结果控制台回显；
+            4. **配置持久化**：数据安全存储于 `${QPKG_ROOT}/conf`，升级覆盖零数据丢失；
+            5. **视觉体验**：全系适配 32 位全彩 PNG-backed GIF 高清抗锯齿立体圆环图标。
+
+      - name: Commit and Push Updated Version to Main
+        if: steps.version_check.outputs.should_build == 'true' && github.event_name == 'schedule'
+        run: |
+          TARGET_VER="${{ steps.version_check.outputs.target_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add shared/version
+          if git diff --staged --quiet; then
+            echo "版本基准无变化，无需提交"
+          else
+            git commit -m "[auto] 定时同步上游 Lucky v${TARGET_VER} 并更新基准版本"
+            git push origin HEAD:main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,97 @@
+######################################################################
+# Package specific operations that shall be performed when
+# the package is removed.
+######################################################################
+
+PKG_MAIN_REMOVE="{
+	# 彻底清理可能残留的进程
+	killall -9 lucky 2>/dev/null
+
+	# 清理系统级 CLI 软链接
+	rm -f /usr/sbin/lucky /usr/bin/lucky /usr/local/bin/lucky 2>/dev/null
+
+	# 清理 WebUI 软链接
+	rm -f /share/Web/lucky /share/Qweb/lucky /share/CACHEDEV1_DATA/Web/lucky 2>/dev/null
+
+	# 注：用户配置与数据保留在 Install_Path，由 QTS App Center 控制清理
+}"
+
+######################################################################
+# Package specific initialization that shall be performed
+# before the package is installed.
+######################################################################
+
+pkg_init()
+{
+	# 升级保护：检测若已存在旧版本配置，执行原子热备份
+	local cur_path=""
+	if [ -x "/sbin/getcfg" ]; then
+		cur_path=$(/sbin/getcfg lucky Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+		[ -z "$cur_path" ] && cur_path=$(/sbin/getcfg lucky-wanji Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+	fi
+	if [ -z "$cur_path" ] || [ ! -d "$cur_path" ]; then
+		cur_path="$SYS_QPKG_DIR"
+	fi
+	if [ -z "$cur_path" ] || [ ! -d "$cur_path" ]; then
+		for p in /share/CACHEDEV1_DATA/.qpkg/lucky /share/MD0_DATA/.qpkg/lucky /share/HDA_DATA/.qpkg/lucky /share/CACHEDEV1_DATA/.qpkg/lucky-wanji /share/MD0_DATA/.qpkg/lucky-wanji; do
+			if [ -d "$p" ]; then
+				cur_path="$p"
+				break
+			fi
+		done
+	fi
+
+	rm -rf /tmp/.lucky_upgrade_backup 2>/dev/null
+	if [ -n "$cur_path" ] && [ -d "$cur_path/conf" ]; then
+		if ls "$cur_path/conf/"*.lkcf >/dev/null 2>&1; then
+			mkdir -p /tmp/.lucky_upgrade_backup
+			cp -rf "$cur_path/conf/"* /tmp/.lucky_upgrade_backup/ 2>/dev/null
+		fi
+	fi
+}
+
+pkg_post_install()
+{
+	local target_path="$SYS_QPKG_DIR"
+	if [ -z "$target_path" ] || [ ! -d "$target_path" ]; then
+		if [ -x "/sbin/getcfg" ]; then
+			target_path=$(/sbin/getcfg lucky Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+			[ -z "$target_path" ] && target_path=$(/sbin/getcfg lucky-wanji Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+		fi
+	fi
+
+	mkdir -p "$target_path/conf"
+
+	# 1. 优先还原用户热备份的配置，确保升级 100% 保持原有规则与证书
+	if [ -d "/tmp/.lucky_upgrade_backup" ]; then
+		cp -rf /tmp/.lucky_upgrade_backup/* "$target_path/conf/" 2>/dev/null
+		rm -rf /tmp/.lucky_upgrade_backup 2>/dev/null
+	fi
+
+	chmod -Rf 755 "$target_path/conf" 2>/dev/null
+
+	# 2. 将 Lucky 官方高清抗锯齿图标刷新至 QTS 桌面与 App Center 图标库
+	local icon_src="$target_path/icons"
+	[ ! -d "$icon_src" ] && icon_src="$target_path/shared/icons"
+	if [ -d "$icon_src" ]; then
+		for sys_icon_dir in /home/httpd/RSS/images /home/httpd/cgi-bin/images /home/httpd/v3_images; do
+			if [ -d "$sys_icon_dir" ]; then
+				cp -f "$icon_src"/* "$sys_icon_dir/" 2>/dev/null
+			fi
+		done
+		touch /etc/config/qpkg.conf 2>/dev/null
+	fi
+
+	chown -R admin:administrators "$target_path" 2>/dev/null
+	chmod +x "$target_path/x86_64/lucky" "$target_path/x86_64/lucky_wanji" 2>/dev/null
+	chmod +x "$target_path/arm_64/lucky" "$target_path/arm_64/lucky_wanji" 2>/dev/null
+	chmod +x "$target_path/lucky" "$target_path/lucky_wanji" "$target_path/shared/lucky.sh" 2>/dev/null
+
+	# 3. 固化 QPKG 元数据配置，确保 QTS 与 Qmanager 手机 App 正确展示分类与作者
+	if [ -x "/sbin/setcfg" ]; then
+		local cur_name="lucky"
+		[ -n "$QPKG_NAME" ] && cur_name="$QPKG_NAME"
+		/sbin/setcfg "$cur_name" Category "Utilities" -f /etc/config/qpkg.conf 2>/dev/null
+		/sbin/setcfg "$cur_name" Author "Dante | 简介：软硬路由与公网穿透神器 | 官网：https://lucky666.cn" -f /etc/config/qpkg.conf 2>/dev/null
+	fi
+}
