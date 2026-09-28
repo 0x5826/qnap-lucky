@@ -59,33 +59,26 @@ detect_binary() {
 }
 
 # 真实进程指纹联合探测与 PID 自愈函数
-# 核心解决 Lucky Web 内部改配置触发 exec 孤儿自启、导致静态 PID 失效的问题
 get_actual_pids() {
     local matched_pids=""
 
-    # 优先采用 pgrep 按照二进制文件实际执行绝对路径进行匹配
-    if which pgrep >/dev/null 2>&1; then
-        matched_pids=$(pgrep -f "${QPKG_ROOT}/lucky" 2>/dev/null | tr '\n' ' ')
-    fi
-
-    # 降级：遍历 pidof lucky 并核对其 /proc/$pid/exe 符号链接指向
-    if [ -z "$matched_pids" ] && which pidof >/dev/null 2>&1; then
-        for p in $(pidof lucky 2>/dev/null); do
-            if [ -d "/proc/$p" ]; then
-                local exe_target=$(readlink -f "/proc/$p/exe" 2>/dev/null)
-                case "$exe_target" in
-                    *"$QPKG_ROOT"*)
-                        matched_pids="$matched_pids $p"
-                        ;;
-                esac
-            fi
-        done
-    fi
-
-    # 若未开启 proc 保护且上述均未命中，做最后通配匹配
-    if [ -z "$matched_pids" ] && which pidof >/dev/null 2>&1; then
-        matched_pids=$(pidof lucky 2>/dev/null)
-    fi
+    for proc_dir in /proc/[0-9]*; do
+        [ ! -d "$proc_dir" ] && continue
+        local p="${proc_dir##*/}"
+        local comm=$(cat "$proc_dir/comm" 2>/dev/null)
+        if [ "$comm" = "lucky" ] || [ "$comm" = "lucky_wanji" ]; then
+            # 必须排除临时执行的 CLI 工具（例如 Web 后台调用的 -baseConfInfo 或 -info）
+            local cmdline=$(tr '\0' ' ' < "$proc_dir/cmdline" 2>/dev/null)
+            case "$cmdline" in
+                *"-baseConfInfo"*|*"-info"*|*"-rResetUser"*|*"-rCancelSafeURL"*|*"-rUnlock"*|*"-rDisable2FA"*|*"-h"*|*"-v"*)
+                    continue
+                    ;;
+                *)
+                    matched_pids="$matched_pids $p"
+                    ;;
+            esac
+        fi
+    done
 
     echo "$matched_pids" | xargs 2>/dev/null
 }
@@ -94,10 +87,11 @@ sync_pid_file() {
     local active_pids=$(get_actual_pids)
     if [ -n "$active_pids" ]; then
         local first_pid=$(echo "$active_pids" | awk '{print $1}')
-        echo "$first_pid" > "$PID_FILE"
+        echo "$first_pid" > "$PID_FILE" 2>/dev/null || true
+        chmod 666 "$PID_FILE" 2>/dev/null || true
         return 0
     else
-        rm -f "$PID_FILE" 2>/dev/null
+        rm -f "$PID_FILE" 2>/dev/null || true
         return 1
     fi
 }
@@ -108,6 +102,23 @@ log_sys() {
     fi
 }
 
+ensure_web_symlinks() {
+    local web_src="$QPKG_ROOT/web"
+    [ ! -d "$web_src" ] && web_src="$QPKG_ROOT/shared/web"
+    if [ -d "$web_src" ]; then
+        for target_web in "$APACHE_ROOT" /share/Web /share/Qweb /share/CACHEDEV1_DATA/Web; do
+            if [ -d "$target_web" ]; then
+                if [ ! -L "$target_web/lucky" ] || [ "$(readlink "$target_web/lucky" 2>/dev/null)" != "$web_src" ]; then
+                    rm -rf "$target_web/lucky" 2>/dev/null
+                    ln -sf "$web_src" "$target_web/lucky" 2>/dev/null
+                fi
+            fi
+        done
+    fi
+}
+
+ensure_web_symlinks
+
 case "$1" in
   start)
     if [ -x "/sbin/getcfg" ]; then
@@ -116,6 +127,22 @@ case "$1" in
             echo "$QPKG_NAME is disabled in App Center."
             exit 1
         fi
+    fi
+
+    # 开机自启动偏好检查 (对齐 EasyTier 架构：独立开关 autostart，默认为 1)
+    SETTINGS_FILE="$CONF_DIR/qpkg_settings.json"
+    AUTOSTART="1"
+    if [ -f "$SETTINGS_FILE" ]; then
+        CONF_AUTOSTART=$(grep -o '"autostart"[[:space:]]*:[[:space:]]*[0-9]*' "$SETTINGS_FILE" 2>/dev/null | awk -F: '{print $2}' | tr -d ' ')
+        [ -n "$CONF_AUTOSTART" ] && AUTOSTART="$CONF_AUTOSTART"
+    fi
+
+    # 只要不是手动传入 force 参数，且 autostart=0，则开机跳过拉起核心服务
+    if [ "$AUTOSTART" = "0" ] && [ "$2" != "force" ]; then
+        ensure_web_symlinks
+        log_sys "开机自启动已设为禁用 (autostart: 0)，跳过拉起核心服务，保持 Web 控制台运行环境。"
+        echo "$QPKG_NAME is skipped on boot by autostart setting (autostart: 0)."
+        exit 0
     fi
 
     # 检查是否已有活跃实例
@@ -172,15 +199,7 @@ case "$1" in
     ln -sf "$CORE_BIN" /usr/local/bin/lucky 2>/dev/null
 
     # 挂载 Web 管理面板软链接至 QTS Apache 根目录
-    WEB_SRC="$QPKG_ROOT/web"
-    [ ! -d "$WEB_SRC" ] && WEB_SRC="$QPKG_ROOT/shared/web"
-    if [ -d "$WEB_SRC" ]; then
-        for target_web in "$APACHE_ROOT" /share/Web /share/Qweb /share/CACHEDEV1_DATA/Web; do
-            if [ -d "$target_web" ]; then
-                ln -sf "$WEB_SRC" "$target_web/lucky"
-            fi
-        done
-    fi
+    ensure_web_symlinks
 
     # 刷新 QTS 桌面与 App Center 图标库为高清无黑边图标
     ICON_SRC="$QPKG_ROOT/icons"
@@ -195,12 +214,13 @@ case "$1" in
     fi
 
     # 启动 Lucky 核心进程（前台转后台，并指定持久化配置目录）
-    nohup "$CORE_BIN" -cd "$CONF_DIR" >> "$LOG_FILE" 2>&1 &
+    eval "\"$CORE_BIN\" -cd \"$CONF_DIR\" >> \"$LOG_FILE\" 2>&1 &"
 
     # 等待进程就绪并动态捕获实际 PID
     sleep 1
+    chmod 666 "$LOG_FILE" 2>/dev/null || true
     if sync_pid_file; then
-        CURRENT_PID=$(cat "$PID_FILE")
+        CURRENT_PID=$(cat "$PID_FILE" 2>/dev/null)
         log_sys "Lucky 服务已成功启动 (PID: $CURRENT_PID)"
         echo "$QPKG_NAME started successfully (PID: $CURRENT_PID)."
     else
@@ -241,15 +261,6 @@ case "$1" in
     killall -9 lucky 2>/dev/null
 
     rm -f "$PID_FILE" 2>/dev/null
-
-    # 清理系统 CLI 软链接
-    rm -f /usr/bin/lucky /usr/sbin/lucky /usr/local/bin/lucky 2>/dev/null
-
-    # 清理 WebUI 软链接
-    if [ -d "$APACHE_ROOT" ]; then
-        rm -f "$APACHE_ROOT/lucky" 2>/dev/null
-    fi
-    rm -f /share/Web/lucky /share/Qweb/lucky /share/CACHEDEV1_DATA/Web/lucky 2>/dev/null
 
     log_sys "Lucky 服务已停止"
     echo "$QPKG_NAME stopped."

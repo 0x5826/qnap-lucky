@@ -32,6 +32,20 @@ function run_shell($cmd) {
     ];
 }
 
+function is_process_lucky($pid) {
+    if (empty($pid) || !is_numeric($pid)) return false;
+    if (!file_exists("/proc/$pid")) return false;
+    $comm = trim(@file_get_contents("/proc/$pid/comm") ?: '');
+    if ($comm !== 'lucky' && $comm !== 'lucky_wanji') return false;
+
+    // 检查 cmdline，排除短命的 CLI 工具进程（如 -baseConfInfo 或 -info）
+    $cmdline = @file_get_contents("/proc/$pid/cmdline") ?: '';
+    if (preg_match('/-(baseConfInfo|info|rResetUser|rCancelSafeURL|rUnlock|rDisable2FA|h|v)\b/', $cmdline)) {
+        return false;
+    }
+    return true;
+}
+
 if ($action === 'get_status') {
     // 1. 检查运行状态与 PID
     $is_running = false;
@@ -41,31 +55,59 @@ if ($action === 'get_status') {
     if (file_exists($service_sh)) {
         $status_res = run_shell("sh \"$service_sh\" status");
         if ($status_res['code'] === 0) {
-            $is_running = true;
             if (preg_match('/PID:\s*(\d+)/', $status_res['output'], $m)) {
-                $current_pid = $m[1];
+                $candidate = $m[1];
+                if (is_process_lucky($candidate)) {
+                    $is_running = true;
+                    $current_pid = $candidate;
+                }
             }
         }
     }
     if (!$is_running && file_exists($pid_file)) {
-        $saved_pid = trim(file_get_contents($pid_file));
-        if (!empty($saved_pid) && file_exists("/proc/$saved_pid")) {
+        $saved_pid = trim(@file_get_contents($pid_file));
+        if (!empty($saved_pid) && is_process_lucky($saved_pid)) {
             $is_running = true;
             $current_pid = $saved_pid;
         }
     }
 
-    // 2. 获取 lucky -info
+    // 2. 获取 lucky -info (静态信息带本地轻量缓存，避免每次轮询都重复 fork 进程)
     $info_data = [];
-    if (file_exists($core_bin)) {
+    $info_cache_file = "$conf_dir/.info_cache.json";
+    if (file_exists($info_cache_file) && file_exists($core_bin) && filemtime($info_cache_file) >= filemtime($core_bin)) {
+        $cached_info = @json_decode(file_get_contents($info_cache_file), true);
+        if (is_array($cached_info)) {
+            $info_data = $cached_info;
+        }
+    }
+    if (empty($info_data) && file_exists($core_bin)) {
         $info_raw = trim(shell_exec("\"$core_bin\" -info 2>/dev/null"));
         if (!empty($info_raw)) {
             $decoded = json_decode($info_raw, true);
             if (json_last_error() === JSON_ERROR_NONE) {
                 $info_data = $decoded;
+                if (is_dir($conf_dir) && is_writable($conf_dir)) {
+                    @file_put_contents($info_cache_file, $info_raw);
+                }
             }
         }
     }
+
+    // 解析构建版本 (包含构建日期，对齐 EasyTier 规范：如 2.27.2-20260928)
+    $build_ver_file = "$qpkg_root/build_version";
+    if (!file_exists($build_ver_file) && file_exists("$qpkg_root/shared/build_version")) {
+        $build_ver_file = "$qpkg_root/shared/build_version";
+    }
+    $build_version = "";
+    if (file_exists($build_ver_file)) {
+        $build_version = trim(file_get_contents($build_ver_file));
+    }
+    if (empty($build_version)) {
+        $core_ver = !empty($info_data['Version']) ? $info_data['Version'] : '2.27.2';
+        $build_version = $core_ver . '-20260928';
+    }
+    $info_data['BuildVersion'] = $build_version;
 
     // 3. 获取 lucky -baseConfInfo
     $base_conf = [
@@ -135,20 +177,57 @@ if ($action === 'get_status') {
         }
     }
 
+    // 获取开机自启配置 (对齐 EasyTier 架构：读取 qpkg_settings.json，默认为 1 开启)
+    $settings_file = "$conf_dir/qpkg_settings.json";
+    $autostart = 1;
+    if (file_exists($settings_file)) {
+        $s_data = @json_decode(file_get_contents($settings_file), true);
+        if (is_array($s_data) && isset($s_data['autostart'])) {
+            $autostart = intval($s_data['autostart']);
+        }
+    }
+
     echo json_encode([
         'status' => 'success',
         'is_running' => $is_running,
         'pid' => $current_pid,
-        'cpu' => $cpu_usage,
-        'mem' => $mem_usage,
         'uptime' => $uptime,
         'info' => $info_data,
         'config' => $base_conf,
+        'autostart' => ($autostart !== 0),
         'port_diagnostic' => [
             'port' => $admin_port,
             'status' => $port_status,
             'occupant' => $port_occupant
         ]
+    ]);
+    exit;
+}
+
+if ($action === 'set_autostart') {
+    $raw = file_get_contents('php://input');
+    $input = json_decode($raw, true);
+    if (!is_array($input)) {
+        $input = $_POST;
+    }
+    $target_val = (!empty($input['autostart']) && $input['autostart'] != '0' && $input['autostart'] !== false) ? 1 : 0;
+    
+    $settings_file = "$conf_dir/qpkg_settings.json";
+    $settings_data = ['autostart' => $target_val];
+    if (file_exists($settings_file)) {
+        $existing = @json_decode(file_get_contents($settings_file), true);
+        if (is_array($existing)) {
+            $settings_data = array_merge($existing, $settings_data);
+        }
+    }
+    @file_put_contents($settings_file, json_encode($settings_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    @chmod($settings_file, 0666);
+
+    $is_on = ($target_val === 1);
+    echo json_encode([
+        'status' => 'success',
+        'autostart' => $is_on,
+        'message' => $is_on ? '开机自启动已开启' : '开机自启动已关闭'
     ]);
     exit;
 }
@@ -182,14 +261,21 @@ if ($action === 'get_listening_ports') {
 
 if ($action === 'run_cmd') {
     $cmd_key = isset($_POST['cmd']) ? trim($_POST['cmd']) : '';
+
+    $sudo_prefix = "";
+    $test_sudo = @shell_exec("sudo -n true 2>&1");
+    if ($test_sudo === null || trim($test_sudo) === '') {
+        $sudo_prefix = "sudo -n ";
+    }
+
     $allowed_commands = [
         'reset_user' => "\"$core_bin\" -rResetUser",
         'cancel_safeurl' => "\"$core_bin\" -rCancelSafeURL",
         'unlock' => "\"$core_bin\" -rUnlock",
         'disable_2fa' => "\"$core_bin\" -rDisable2FA",
-        'restart' => "sh \"$service_sh\" restart",
-        'start' => "sh \"$service_sh\" start",
-        'stop' => "sh \"$service_sh\" stop"
+        'restart' => "{$sudo_prefix}sh \"$service_sh\" restart",
+        'start' => "{$sudo_prefix}sh \"$service_sh\" start force",
+        'stop' => "{$sudo_prefix}sh \"$service_sh\" stop"
     ];
 
     if (!isset($allowed_commands[$cmd_key])) {

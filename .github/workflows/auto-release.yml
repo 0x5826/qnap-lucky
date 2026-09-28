@@ -155,6 +155,7 @@ jobs:
           chmod +x scripts/download_binaries.sh
           ./scripts/download_binaries.sh "${CORE_VER}"
           echo "${CORE_VER}" > shared/version
+          echo "${TARGET_VER}" > shared/build_version
 
       - name: Build QPKG Packages (Standard & Wanji)
         if: steps.version_check.outputs.should_build == 'true'

@@ -4,205 +4,399 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lucky - QNAP 原生管理面板</title>
-    <link rel="icon" type="image/x-icon" href="static/favicon.ico">
+    <link rel="shortcut icon" href="static/favicon.ico" type="image/x-icon">
     <style>
+        /* 统一采用 EasyTier 原生暗黑极客质感配色系统 */
         :root {
-            --primary: #10b981;
-            --primary-hover: #059669;
-            --primary-light: #ecfdf5;
-            --bg-color: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --terminal-bg: #090d16;
-            --terminal-text: #e2e8f0;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04);
-        }
+            --bg-base: #0f172a;
+            --bg-surface: #1e293b;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-focus: #0ea5e9;
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-color: #0f172a;
-                --card-bg: #1e293b;
-                --text-main: #f8fafc;
-                --text-muted: #94a3b8;
-                --border-color: #334155;
-                --primary-light: #064e3b;
-            }
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+
+            --primary: #0ea5e9;
+            --primary-hover: #38bdf8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+
+            --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         }
 
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
 
         body {
-            background-color: var(--bg-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-base);
             color: var(--text-main);
+            font-size: 14px;
             line-height: 1.5;
-            padding: 24px 20px;
+            min-height: 100vh;
+            padding: 16px;
         }
 
         .container {
-            max-width: 980px;
+            max-width: 960px;
             margin: 0 auto;
         }
 
-        /* 顶部导航与状态条 */
-        .header {
+        /* 头部导航 (对齐 EasyTier 架构) */
+        .app-header {
             display: flex;
-            align-items: center;
             justify-content: space-between;
-            margin-bottom: 24px;
-            background: var(--card-bg);
-            padding: 16px 24px;
-            border-radius: 16px;
-            box-shadow: var(--shadow-sm);
+            align-items: center;
+            padding: 16px 20px;
+            background: var(--bg-surface);
             border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-card);
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
         }
 
-        .header-brand {
+        .header-left {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
 
-        .header-logo {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
+        .official-logo {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
             object-fit: contain;
-            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+            filter: drop-shadow(0 3px 10px rgba(14, 165, 233, 0.3));
         }
 
-        .header-info h1 {
-            font-size: 20px;
+        .title-meta h1 {
+            font-size: 18px;
             font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
 
-        .header-info p {
-            font-size: 13px;
+        .badge-version {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 6px;
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-radius: 4px;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-family: var(--font-mono);
+        }
+
+        .app-subtitle {
+            font-size: 12px;
             color: var(--text-muted);
         }
 
-        .badge-status {
-            display: inline-flex;
+        .header-right {
+            display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 14px;
-            border-radius: 9999px;
-            font-size: 13px;
-            font-weight: 600;
+            gap: 12px;
+            flex-wrap: wrap;
         }
 
-        .status-running {
-            background-color: #dcfce7;
-            color: #15803d;
-        }
-
-        .status-stopped {
-            background-color: #fee2e2;
-            color: #b91c1c;
+        /* 状态指示盒与开机自启动控制器 */
+        .status-indicator-box {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 5px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
         }
 
         .pulse-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background-color: currentColor;
-            box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7);
+        }
+
+        .status-dot-running {
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success);
             animation: pulse 2s infinite;
         }
 
-        @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+        .status-dot-stopped {
+            background-color: var(--danger);
+            box-shadow: 0 0 8px var(--danger);
         }
 
-        /* 进入原生控制台按钮 */
-        .btn-launch {
-            display: inline-flex;
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .status-text {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .status-divider {
+            width: 1px;
+            height: 14px;
+            background: rgba(255, 255, 255, 0.15);
+            margin: 0 2px;
+        }
+
+        .autostart-control {
+            display: flex;
             align-items: center;
             gap: 8px;
-            background: #10b981;
-            color: #ffffff;
-            padding: 9px 18px;
-            border-radius: 10px;
-            font-size: 13.5px;
-            font-weight: 700;
-            text-decoration: none;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
-            border: none;
+            user-select: none;
+        }
+
+        .autostart-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+            letter-spacing: 0.2px;
+        }
+
+        /* 微型开关组件规范 (对齐 EasyTier) */
+        .switch {
+            position: relative;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
             cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .25s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            background-color: #94a3b8;
+            transition: .25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        input:checked + .slider:before {
+            background-color: #ffffff;
+        }
+
+        .switch-sm {
+            width: 32px;
+            height: 18px;
+        }
+
+        .switch-sm .slider {
+            border-radius: 18px;
+        }
+
+        .switch-sm .slider:before {
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 1px;
+            border-radius: 50%;
+        }
+
+        .switch-sm input:checked + .slider:before {
+            transform: translateX(14px);
+        }
+
+        /* 按钮规范 */
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            line-height: 1.4;
+        }
+
+        .btn-outline {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--border-color);
+            color: var(--text-main);
+        }
+
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 2px 8px rgba(14, 165, 233, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+
+        .btn-danger:hover {
+            background: var(--danger);
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .btn-launch {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
         }
 
         .btn-launch:hover {
+            background: var(--success);
+            color: white;
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
-            background: #059669;
         }
 
-        /* 状态看板网格 */
-        .stats-grid {
+        /* 核心状态指标卡片 (紧凑两列网格，高度精炼) */
+        .stat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 640px) {
+            .stat-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .stat-card {
-            background: var(--card-bg);
+            background: var(--bg-surface);
             border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 18px 20px;
+            border-radius: var(--radius-md);
+            padding: 14px 18px;
             box-shadow: var(--shadow-sm);
-        }
-
-        .stat-title {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted);
-            margin-bottom: 8px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 14px;
         }
 
         .stat-icon {
-            display: inline-flex;
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
             align-items: center;
-            color: var(--text-muted);
+            justify-content: center;
+            flex-shrink: 0;
         }
 
-        .stat-value {
-            font-size: 22px;
+        .bg-blue {
+            background: rgba(14, 165, 233, 0.15);
+            color: #38bdf8;
+            border: 1px solid rgba(14, 165, 233, 0.25);
+        }
+
+        .bg-emerald {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .stat-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 3px;
+        }
+
+        .stat-val {
+            font-size: 16px;
             font-weight: 700;
             color: var(--text-main);
+            font-family: var(--font-mono);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .stat-desc {
             font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 4px;
+            color: var(--text-dim);
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        /* 运维控制台与卡片 */
+        .badge-status-tag {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 1px 7px;
+            border-radius: 4px;
+            font-family: sans-serif;
+        }
+
+        /* 通用卡片容器 */
         .section-card {
-            background: var(--card-bg);
+            background: var(--bg-surface);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 24px;
+            border-radius: var(--radius-md);
+            padding: 18px 20px;
+            margin-bottom: 16px;
             box-shadow: var(--shadow-sm);
         }
 
@@ -210,295 +404,352 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 18px;
-            padding-bottom: 12px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
             border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 8px;
         }
 
-        .section-header h3 {
-            font-size: 16px;
-            font-weight: 700;
+        .section-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-main);
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .cmd-button-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 18px;
+        .section-desc {
+            font-size: 12px;
+            color: var(--text-muted);
         }
 
-        .btn-cmd {
-            background: var(--bg-color);
-            color: var(--text-main);
-            border: 1px solid var(--border-color);
-            padding: 9px 16px;
-            border-radius: 10px;
+        /* 高级配置指令按钮组 (增强对比度与极客科技质感) */
+        .cmd-button-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
+        }
+
+        .btn-action-cmd {
+            background: rgba(14, 165, 233, 0.08);
+            border: 1px solid rgba(14, 165, 233, 0.25);
+            color: #f8fafc;
+            padding: 10px 15px;
+            border-radius: var(--radius-sm);
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.15s ease;
-            display: inline-flex;
+            transition: all 0.2s ease;
+            text-align: left;
+            display: flex;
             align-items: center;
-            gap: 6px;
+            justify-content: space-between;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25);
         }
 
-        .btn-cmd:hover {
-            border-color: var(--primary);
-            color: var(--primary);
-            background: var(--primary-light);
+        .btn-action-cmd:hover {
+            background: rgba(14, 165, 233, 0.18);
+            border-color: #38bdf8;
+            color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
         }
 
-        .btn-cmd.btn-danger:hover {
-            border-color: var(--danger);
-            color: var(--danger);
-            background: #fef2f2;
+        .btn-action-cmd:active {
+            transform: translateY(0);
         }
 
-        /* 终端输出展示窗口 */
-        .terminal-box {
-            background: var(--terminal-bg);
-            color: var(--terminal-text);
-            border-radius: 12px;
-            padding: 16px 20px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        .btn-action-cmd span.cmd-sub {
+            font-size: 11px;
+            font-weight: 600;
+            color: #38bdf8;
+            background: rgba(14, 165, 233, 0.15);
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-family: var(--font-mono);
+        }
+
+        /* 命令执行反馈框 */
+        .exec-feedback {
+            margin-top: 12px;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
             font-size: 12.5px;
-            line-height: 1.6;
-            max-height: 260px;
+            display: none;
+            position: relative;
+        }
+
+        .feedback-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+        }
+
+        .feedback-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+        }
+
+        .feedback-close {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .feedback-content {
+            margin-top: 6px;
+            font-family: var(--font-mono);
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 8px;
+            border-radius: 4px;
+            max-height: 140px;
             overflow-y: auto;
-            border: 1px solid #1e293b;
+            color: var(--text-main);
+        }
+
+        /* 运行日志窗口 (终端配色与高对比呈现) */
+        .terminal-box {
+            background: #090d16;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: #e2e8f0;
+            line-height: 1.55;
+            height: 240px;
+            overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
         }
 
         .terminal-box::-webkit-scrollbar {
             width: 6px;
-            height: 6px;
         }
-
         .terminal-box::-webkit-scrollbar-thumb {
             background: #334155;
             border-radius: 3px;
         }
 
-        .terminal-prompt {
-            color: #38bdf8;
-            margin-right: 6px;
+        /* 顶部居中浮动提示 Toast (对齐 EasyTier 交互规范) */
+        .toast {
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translate(-50%, -20px);
+            padding: 12px 24px;
+            background: rgba(15, 23, 42, 0.94);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            font-size: 13.5px;
+            font-weight: 500;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+            z-index: 9999;
+            white-space: nowrap;
+            color: #f8fafc;
         }
 
-        .terminal-success {
-            color: #4ade80;
-        }
-
-        .terminal-error {
-            color: #f87171;
-        }
-
-        /* 日志窗口控制 */
-        .log-controls {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .footer {
-            text-align: center;
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 32px;
-        }
-
-        .footer a {
-            color: var(--primary);
-            text-decoration: none;
+        .toast.show {
+            opacity: 1;
+            transform: translate(-50%, 0);
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <!-- 顶部状态栏 -->
-    <div class="header">
-        <div class="header-brand">
-            <img src="static/favicon.ico" class="header-logo" alt="Lucky Logo">
-            <div class="header-info">
-                <h1>Lucky 原生管理面板</h1>
-                <p>端口转发 · 反向代理 · 动态域名 · 自动证书 · 网络唤醒</p>
+    <!-- 头部导航 (对齐 EasyTier 交互标准) -->
+    <header class="app-header">
+        <div class="header-left">
+            <img src="static/logo.png" class="official-logo" alt="Lucky">
+            <div class="title-meta">
+                <h1>Lucky <span class="badge-version" id="headerVersion">v2.27.2-20260928</span></h1>
+                <span class="app-subtitle">软硬路由与公网穿透管理平台</span>
             </div>
         </div>
-        <div id="statusBadge" class="badge-status status-stopped">
-            <div class="pulse-dot"></div>
-            <span id="statusText">检测中...</span>
-        </div>
-    </div>
 
+        <div class="header-right">
+            <!-- 状态胶囊与开机自启动开关 -->
+            <div class="status-indicator-box">
+                <span class="pulse-dot status-dot-stopped" id="headerStatusDot"></span>
+                <span class="status-text" id="headerStatusText">检测中...</span>
+                <span class="status-divider"></span>
+                <div class="autostart-control" title="设置系统开机或重启时是否自动运行 Lucky">
+                    <span class="autostart-label">开机自启</span>
+                    <label class="switch switch-sm">
+                        <input type="checkbox" id="autostart_switch" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
 
-
-    <!-- 状态与环境指标网格 -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-title">
-                <span>程序版本</span>
-                <span class="stat-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-                        <line x1="7" y1="7" x2="7.01" y2="7"></line>
+            <!-- 操作按钮组 -->
+            <div class="action-buttons">
+                <button class="btn btn-outline" id="btnRefresh" onclick="fetchStatus(true)" title="立即刷新服务状态">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                     </svg>
-                </span>
-            </div>
-            <div id="statVersion" class="stat-value">--</div>
-            <div id="statArch" class="stat-desc">架构检测中...</div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-title">
-                <span>运行进程 PID</span>
-                <span class="stat-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                    </svg>
-                </span>
-            </div>
-            <div id="statPid" class="stat-value">--</div>
-            <div id="statUptime" class="stat-desc">持续运行时长: --</div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-title">
-                <span>管理监听端口</span>
-                <span class="stat-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="2" y1="12" x2="22" y2="12"></line>
-                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                    </svg>
-                </span>
-            </div>
-            <div style="display: flex; align-items: baseline; gap: 8px;">
-                <div id="statPort" class="stat-value">16601</div>
-                <span id="statPortBadge" style="font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; background: #e2e8f0; color: #475569;">检测中</span>
-            </div>
-            <div id="statSafeUrl" class="stat-desc">安全入口: 未设置</div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-title">
-                <span>资源占用</span>
-                <span class="stat-icon">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="20" x2="18" y2="10"></line>
-                        <line x1="12" y1="20" x2="12" y2="4"></line>
-                        <line x1="6" y1="20" x2="6" y2="14"></line>
-                    </svg>
-                </span>
-            </div>
-            <div id="statResource" class="stat-value">0% / 0 MB</div>
-            <div class="stat-desc">CPU / 内存占用率</div>
-        </div>
-    </div>
-
-    <!-- 控制面板 (融合管理控制台直达入口、端口说明与运维指令) -->
-    <div class="section-card">
-        <div class="section-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-            <div>
-                <h3>控制面板</h3>
-                <p id="heroPortTip" style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">当前监听端口：16601 · 安全入口：未设置</p>
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <a id="btnLaunchNative" href="http://127.0.0.1:16601" target="_blank" class="btn-launch">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <span>刷新</span>
+                </button>
+                <button id="btnToggleService" class="btn btn-primary" onclick="toggleService()">
+                    启动服务
+                </button>
+                <a id="btnLaunchNative" href="http://127.0.0.1:16601" target="_blank" class="btn btn-launch" style="display: none;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
                         <polyline points="15 3 21 3 21 9"></polyline>
                         <line x1="10" y1="14" x2="21" y2="3"></line>
                     </svg>
-                    <span>进入 Lucky 控制台</span>
+                    <span>进入控制台</span>
                 </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 核心状态指标卡片 (紧凑两列网格，高度精炼) -->
+    <section class="stat-grid">
+        <!-- 卡片 1：管理监听端口 -->
+        <div class="stat-card">
+            <div class="stat-icon bg-blue">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                </svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">Web 管理端口</div>
+                <div class="stat-val">
+                    <span id="statPort">16601</span>
+                    <span id="statPortBadge" class="badge-status-tag" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">检测中</span>
+                </div>
+                <div id="statSafeUrl" class="stat-desc">安全入口: 未设置</div>
+            </div>
+        </div>
+
+        <!-- 卡片 2：服务核心进程 -->
+        <div class="stat-card">
+            <div class="stat-icon bg-emerald">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                </svg>
+            </div>
+            <div class="stat-content">
+                <div class="stat-label">核心常驻进程 (PID)</div>
+                <div class="stat-val">
+                    <span id="statPid">未运行</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 高级配置 -->
+    <section class="section-card">
+        <div class="section-header">
+            <div>
+                <div class="section-title">高级配置</div>
+                <div class="section-desc">官方 CLI 安全重置与应急运维指令</div>
             </div>
         </div>
 
         <div class="cmd-button-group">
-            <button class="btn-cmd" onclick="runCommand('reset_user', '重置管理员密码')">
-                重置登录凭据 (666:666)
+            <button class="btn-action-cmd" onclick="runCommand('reset_user', '重置管理员')">
+                <span>重置登录凭据</span>
+                <span class="cmd-sub">666:666</span>
             </button>
-            <button class="btn-cmd" onclick="runCommand('cancel_safeurl', '取消安全入口')">
-                取消安全入口 (SafeURL)
+            <button class="btn-action-cmd" onclick="runCommand('cancel_safeurl', '取消安全入口')">
+                <span>清除安全入口</span>
+                <span class="cmd-sub">SafeURL</span>
             </button>
-            <button class="btn-cmd" onclick="runCommand('unlock', '解除登录锁定')">
-                解除登录锁定
+            <button class="btn-action-cmd" onclick="runCommand('unlock', '解除登录锁定')">
+                <span>解除限制锁定</span>
+                <span class="cmd-sub">Unlock</span>
             </button>
-            <button class="btn-cmd" onclick="runCommand('disable_2fa', '禁用 2FA')">
-                禁用双重验证 (2FA)
-            </button>
-            <button class="btn-cmd" onclick="runCommand('restart', '重启服务')">
-                重启服务
-            </button>
-            <button class="btn-cmd btn-danger" onclick="runCommand('stop', '停止服务')">
-                停止 Lucky
-            </button>
-            <button class="btn-cmd" style="color: var(--primary);" onclick="runCommand('start', '启动服务')">
-                启动 Lucky
+            <button class="btn-action-cmd" onclick="runCommand('disable_2fa', '禁用 2FA')">
+                <span>关闭双重验证</span>
+                <span class="cmd-sub">Disable2FA</span>
             </button>
         </div>
 
-        <!-- 终端命令执行输出结果区域 -->
-        <div id="terminalOutput" class="terminal-box">
-<span class="terminal-prompt">$</span>就绪。点击上方按钮执行对应应急运维指令，执行状态与控制台输出将在此实时显示。
+        <!-- 动态命令执行反馈条 -->
+        <div id="execFeedback" class="exec-feedback">
+            <button class="feedback-close" onclick="hideFeedback()">×</button>
+            <strong id="feedbackTitle">执行结果</strong>
+            <div id="feedbackBody" class="feedback-content"></div>
         </div>
-    </div>
+    </section>
 
-    <!-- NAS 当前端口占用速查卡片 (折叠组件) -->
-    <div class="section-card" style="padding: 16px 24px; margin-bottom: 24px;">
+    <!-- NAS 当前端口占用参考 (折叠卡片) -->
+    <section class="section-card" style="padding: 12px 20px;">
         <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;" onclick="togglePortsPanel()">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <span style="font-size: 14px; font-weight: 600;">NAS 当前已监听 TCP 端口参考</span>
+                <span style="font-size: 13px; font-weight: 600;">NAS 当前已监听 TCP 端口参考</span>
                 <span id="listeningPortsCount" style="font-size: 12px; color: var(--text-muted);">(共 -- 个)</span>
             </div>
             <span id="portsToggleText" style="font-size: 12px; color: var(--text-muted);">展开查看</span>
         </div>
-        <div id="listeningPortsContainer" style="display: none; margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
-            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
-                以下为 NAS 当前已被其他进程或系统服务占用的端口。若在 Lucky 中配置端口转发或修改 Web 控制台端口，请避开下列端口：
+        <div id="listeningPortsContainer" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-color);">
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                以下为 NAS 当前被系统或其他容器占用的 TCP 端口。在 Lucky 中配置端口转发或修改 Web 控制台端口时，请避开下列端口：
             </p>
             <div id="listeningPortsBadges" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto;">
                 <span style="font-size: 12px; color: var(--text-muted);">正在扫描系统监听端口...</span>
             </div>
         </div>
-    </div>
+    </section>
 
-    <!-- 实时运行日志看板 -->
-    <div class="section-card">
+    <!-- 运行日志窗口 (程序运行与启停日志统一收敛) -->
+    <section class="section-card">
         <div class="section-header">
-            <h3>运行日志 (lucky.log)</h3>
-            <div class="log-controls">
+            <div>
+                <div class="section-title">运行日志 (lucky.log)</div>
+                <div class="section-desc">统一呈现核心服务输出与启停异常日志</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-muted);">
                 <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
                     <input type="checkbox" id="autoRefreshLog" checked> 自动刷新 (5s)
                 </label>
-                <button class="btn-cmd" style="padding: 4px 10px; font-size: 12px;" onclick="fetchLogs()">
-                    立即刷新
+                <button class="btn btn-outline" style="padding: 3px 8px; font-size: 11.5px;" onclick="fetchLogs()">
+                    刷新日志
+                </button>
+                <button class="btn btn-outline" style="padding: 3px 8px; font-size: 11.5px;" onclick="clearLogView()">
+                    清屏
                 </button>
             </div>
         </div>
-        <div id="logOutput" class="terminal-box" style="max-height: 320px;">
-正在获取最新运行日志...
-        </div>
-    </div>
 
-    <div class="footer">
-        <p>Lucky QNAP 原生插件由 Dante 构建维护 · 官方主页: <a href="https://lucky666.cn/" target="_blank">lucky666.cn</a> · GitHub: <a href="https://github.com/gdy666/lucky" target="_blank">gdy666/lucky</a></p>
-    </div>
+        <div id="logOutput" class="terminal-box">正在加载运行日志...</div>
+    </section>
 </div>
+
+<!-- 浮动通知 Toast (对齐 EasyTier 交互规范) -->
+<div id="toast" class="toast"></div>
 
 <script>
     let currentAdminPort = 16601;
     let currentSafeUrl = "";
+    let isServiceRunning = false;
 
     function updateNativeUrl() {
         const host = window.location.hostname || "127.0.0.1";
@@ -510,39 +761,58 @@
         }
         const btn = document.getElementById("btnLaunchNative");
         btn.href = url;
-        document.getElementById("heroPortTip").innerText = `当前监听端口：${currentAdminPort}${currentSafeUrl ? ' · 安全入口：' + currentSafeUrl : ' · 安全入口：未设置'} · 点击右侧进入完整控制台`;
     }
 
-    async function fetchStatus() {
+    async function fetchStatus(isManual = false) {
         try {
             const resp = await fetch("api.php?action=get_status");
             const data = await resp.json();
             if (data.status === "success") {
-                const badge = document.getElementById("statusBadge");
-                const text = document.getElementById("statusText");
+                isServiceRunning = !!data.is_running;
 
-                if (data.is_running) {
-                    badge.className = "badge-status status-running";
+                // 顶栏状态指示灯 (呼吸圆点与文案)
+                const dot = document.getElementById("headerStatusDot");
+                const text = document.getElementById("headerStatusText");
+                const launchBtn = document.getElementById("btnLaunchNative");
+                const toggleBtn = document.getElementById("btnToggleService");
+
+                if (isServiceRunning) {
+                    dot.className = "pulse-dot status-dot-running";
                     text.innerText = "运行中";
+                    text.style.color = "var(--success)";
+                    launchBtn.style.display = "inline-flex";
+                    toggleBtn.className = "btn btn-danger";
+                    toggleBtn.innerText = "停止服务";
                 } else {
-                    badge.className = "badge-status status-stopped";
+                    dot.className = "pulse-dot status-dot-stopped";
                     text.innerText = "已停止";
+                    text.style.color = "var(--danger)";
+                    launchBtn.style.display = "none";
+                    toggleBtn.className = "btn btn-primary";
+                    toggleBtn.innerText = "启动服务";
                 }
 
-                // PID & 运行时长
-                document.getElementById("statPid").innerText = data.pid || "未运行";
-                document.getElementById("statUptime").innerText = `持续运行时长: ${data.uptime || '--'}`;
-
-                // 资源占用
-                document.getElementById("statResource").innerText = `${data.cpu} / ${data.mem}`;
-
-                // 版本 & 架构
-                if (data.info && data.info.Version) {
-                    document.getElementById("statVersion").innerText = `v${data.info.Version}`;
-                    document.getElementById("statArch").innerText = `${data.info.ARCH} (${data.info.OS}) · ${data.info.GoVersion || ''}`;
+                // 开机自启动开关状态同步
+                const autostartSwitch = document.getElementById("autostart_switch");
+                if (autostartSwitch && typeof data.autostart !== 'undefined') {
+                    autostartSwitch.checked = !!data.autostart;
                 }
 
-                // 端口与安全入口及冲突诊断
+                if (isManual) {
+                    showToast("服务状态已刷新");
+                }
+
+                // 核心进程 PID
+                document.getElementById("statPid").innerText = isServiceRunning ? (data.pid || "运行中") : "未运行";
+
+                // 版本号 (优先展示带构建日期的完整版本，如 v2.27.2-20260928)
+                if (data.info && data.info.BuildVersion) {
+                    document.getElementById("headerVersion").innerText = `v${data.info.BuildVersion}`;
+                } else if (data.info && data.info.Version) {
+                    document.getElementById("headerVersion").innerText = `v${data.info.Version}`;
+                }
+
+                // 端口与安全入口路径
                 if (data.config && data.config.AdminWebListenPort) {
                     currentAdminPort = data.config.AdminWebListenPort;
                     currentSafeUrl = data.config.SafeURL || "";
@@ -551,28 +821,66 @@
                     updateNativeUrl();
                 }
 
-                // 端口健康与冲突状态
+                // 端口健康诊断徽标
                 const portBadge = document.getElementById("statPortBadge");
                 if (data.port_diagnostic) {
                     const pd = data.port_diagnostic;
                     if (pd.status === 'normal') {
-                        portBadge.innerText = "监听正常";
-                        portBadge.style.background = "#dcfce7";
-                        portBadge.style.color = "#15803d";
+                        portBadge.innerText = "正常";
+                        portBadge.style.background = "rgba(16, 185, 129, 0.15)";
+                        portBadge.style.color = "#34d399";
                     } else if (pd.status === 'conflict') {
-                        portBadge.innerText = `冲突被占用: ${pd.occupant || '其他进程'}`;
-                        portBadge.style.background = "#fee2e2";
-                        portBadge.style.color = "#b91c1c";
+                        portBadge.innerText = `冲突: ${pd.occupant || '外部进程'}`;
+                        portBadge.style.background = "rgba(239, 68, 68, 0.15)";
+                        portBadge.style.color = "#f87171";
                     } else {
                         portBadge.innerText = "空闲";
-                        portBadge.style.background = "#f1f5f9";
-                        portBadge.style.color = "#64748b";
+                        portBadge.style.background = "rgba(255, 255, 255, 0.08)";
+                        portBadge.style.color = "var(--text-muted)";
                     }
                 }
             }
         } catch (e) {
             console.error("Failed to fetch status:", e);
         }
+    }
+
+    function toggleService() {
+        if (isServiceRunning) {
+            runCommand('stop', '停止服务');
+        } else {
+            runCommand('start', '启动服务');
+        }
+    }
+
+    // 开机自启动切换事件 (对齐 EasyTier)
+    const autostartSwitch = document.getElementById('autostart_switch');
+    if (autostartSwitch) {
+        autostartSwitch.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            const targetVal = isChecked ? 1 : 0;
+            autostartSwitch.disabled = true;
+
+            try {
+                const resp = await fetch('api.php?action=set_autostart', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ autostart: targetVal })
+                });
+                const res = await resp.json();
+                if (res.status === 'success') {
+                    showToast(res.message || (isChecked ? '开机自启动已开启' : '开机自启动已关闭'));
+                } else {
+                    showToast(res.message || '设置开机自启失败', true);
+                    autostartSwitch.checked = !isChecked;
+                }
+            } catch (err) {
+                showToast('网络请求异常: ' + err.message, true);
+                autostartSwitch.checked = !isChecked;
+            } finally {
+                autostartSwitch.disabled = false;
+            }
+        });
     }
 
     let portsPanelLoaded = false;
@@ -602,13 +910,13 @@
                 if (data.listening_ports && data.listening_ports.length > 0) {
                     badgeBox.innerHTML = data.listening_ports.map(p => {
                         const isCurrent = (p == currentAdminPort);
-                        const bg = isCurrent ? '#10b981' : 'var(--bg-color)';
-                        const color = isCurrent ? '#ffffff' : 'var(--text-main)';
-                        const border = isCurrent ? '#059669' : 'var(--border-color)';
-                        return `<span style="font-size: 12px; font-family: monospace; padding: 3px 8px; border-radius: 6px; background: ${bg}; color: ${color}; border: 1px solid ${border}; font-weight: ${isCurrent ? '700' : '500'};">${p}${isCurrent ? ' (Lucky)' : ''}</span>`;
+                        const bg = isCurrent ? 'rgba(14, 165, 233, 0.25)' : 'rgba(255, 255, 255, 0.05)';
+                        const color = isCurrent ? '#38bdf8' : 'var(--text-main)';
+                        const border = isCurrent ? 'rgba(14, 165, 233, 0.5)' : 'var(--border-color)';
+                        return `<span style="font-size: 11.5px; font-family: var(--font-mono); padding: 2px 7px; border-radius: 4px; background: ${bg}; color: ${color}; border: 1px solid ${border}; font-weight: ${isCurrent ? '700' : '500'};">${p}${isCurrent ? ' (Lucky)' : ''}</span>`;
                     }).join("");
                 } else {
-                    badgeBox.innerHTML = "<span style='font-size: 12px; color: var(--text-muted);'>暂未探测到占用端口</span>";
+                    badgeBox.innerHTML = "<span style='font-size: 12px; color: var(--text-muted);'>未探测到活动端口</span>";
                 }
             }
         } catch (e) {
@@ -616,11 +924,37 @@
         }
     }
 
+    let toastTimer = null;
+    function showToast(message, isError = false) {
+        const toast = document.getElementById('toast');
+        if (!toast) return;
+        toast.textContent = message;
+        toast.style.borderColor = isError ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.4)';
+        toast.style.color = isError ? '#f87171' : '#34d399';
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    function showFeedback(isSuccess, title, content) {
+        const fb = document.getElementById("execFeedback");
+        fb.className = "exec-feedback " + (isSuccess ? "feedback-success" : "feedback-error");
+        document.getElementById("feedbackTitle").innerText = title;
+        document.getElementById("feedbackBody").innerText = content || "(执行完成)";
+        fb.style.display = "block";
+    }
+
+    function hideFeedback() {
+        document.getElementById("execFeedback").style.display = "none";
+    }
+
     async function runCommand(cmdKey, cmdName) {
-        const term = document.getElementById("terminalOutput");
-        const timestamp = new Date().toLocaleTimeString();
-        term.innerHTML += `\n<span class="terminal-prompt">[${timestamp}] $</span> 执行指令 [${cmdName}]...\n`;
-        term.scrollTop = term.scrollHeight;
+        const isServiceCmd = ['start', 'stop', 'restart'].includes(cmdKey);
+        if (!isServiceCmd) {
+            showFeedback(true, `正在执行 [${cmdName}]...`, "请稍候...");
+        } else {
+            showToast(`正在执行 [${cmdName}]...`);
+        }
 
         try {
             const fd = new FormData();
@@ -632,24 +966,38 @@
             const res = await resp.json();
 
             if (res.status === "success") {
-                term.innerHTML += `<span class="terminal-success">[成功] 返回码: ${res.exit_code}</span>\n${res.output || '(命令执行完成，无多余输出)'}\n`;
+                if (isServiceCmd) {
+                    const msgMap = {
+                        'start': '已启动 Lucky 服务',
+                        'stop': '已停止 Lucky 服务',
+                        'restart': '已重启 Lucky 服务'
+                    };
+                    showToast(msgMap[cmdKey] || `[成功] ${cmdName} 完成`);
+                    hideFeedback();
+                } else {
+                    showToast(`[成功] ${cmdName} 执行完成`);
+                    showFeedback(true, `[成功] ${cmdName} 执行完成 (返回码: ${res.exit_code})`, res.output || "指令已成功下发至底层守护进程。");
+                }
             } else {
-                term.innerHTML += `<span class="terminal-error">[失败] 返回码: ${res.exit_code || -1}</span>\n${res.output || res.message || '未知错误'}\n`;
+                showToast(`[失败] ${cmdName} 执行异常`, true);
+                showFeedback(false, `[失败] ${cmdName} 执行异常 (返回码: ${res.exit_code || -1})`, res.output || res.message || "未知错误");
             }
-            term.scrollTop = term.scrollHeight;
 
-            // 延迟 1 秒后刷新状态
-            setTimeout(fetchStatus, 1000);
-            setTimeout(fetchLogs, 1500);
+            setTimeout(() => fetchStatus(false), 1200);
+            setTimeout(fetchLogs, 1600);
         } catch (e) {
-            term.innerHTML += `<span class="terminal-error">[错误] 网络请求异常: ${e.message}</span>\n`;
-            term.scrollTop = term.scrollHeight;
+            showToast(`[错误] 网络通讯异常: ${e.message}`, true);
+            showFeedback(false, `[错误] 网络通讯异常`, e.message);
         }
+    }
+
+    function clearLogView() {
+        document.getElementById("logOutput").innerText = "";
     }
 
     async function fetchLogs() {
         try {
-            const resp = await fetch("api.php?action=get_log&lines=80");
+            const resp = await fetch("api.php?action=get_log&lines=60");
             const data = await resp.json();
             if (data.status === "success") {
                 const logBox = document.getElementById("logOutput");
@@ -665,7 +1013,7 @@
     fetchStatus();
     fetchLogs();
     fetchListeningPorts();
-    setInterval(fetchStatus, 4000);
+    setInterval(() => fetchStatus(false), 4000);
     setInterval(() => {
         if (document.getElementById("autoRefreshLog").checked) {
             fetchLogs();
