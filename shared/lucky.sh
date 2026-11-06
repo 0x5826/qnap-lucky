@@ -5,6 +5,9 @@ QPKG_NAME="lucky"
 # 获取 QPKG 安装根路径
 QPKG_ROOT=$(/sbin/getcfg $QPKG_NAME Install_Path -f ${CONF} 2>/dev/null)
 if [ -z "$QPKG_ROOT" ] || [ ! -d "$QPKG_ROOT" ]; then
+    QPKG_ROOT=$(/sbin/getcfg lucky-wanji Install_Path -f ${CONF} 2>/dev/null)
+fi
+if [ -z "$QPKG_ROOT" ] || [ ! -d "$QPKG_ROOT" ]; then
     SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
     QPKG_ROOT=$(dirname "$SCRIPT_DIR")
 fi
@@ -204,8 +207,10 @@ case "$1" in
 
     # 提取目标监听端口并做冲突预检
     ADMIN_PORT="16601"
-    if [ -x "$CORE_BIN" ] && [ -d "$CONF_DIR" ]; then
-        CONF_PORT=$("$CORE_BIN" -baseConfInfo -cd "$CONF_DIR" 2>/dev/null | grep -o '"AdminWebListenPort":[0-9]*' | cut -d: -f2)
+    if [ -x "$CORE_BIN" ]; then
+        CONF_PARAM=""
+        [ -d "$CONF_DIR" ] && CONF_PARAM="-cd $CONF_DIR"
+        CONF_PORT=$("$CORE_BIN" -baseConfInfo $CONF_PARAM 2>/dev/null | grep -o '"AdminWebListenPort":[0-9]*' | cut -d: -f2)
         [ -n "$CONF_PORT" ] && ADMIN_PORT="$CONF_PORT"
     fi
 
@@ -230,10 +235,56 @@ case "$1" in
         log_sys "警告：管理端口 $ADMIN_PORT 当前已被外部服务 [$PORT_OCCUPIER] 占用，请注意在控制台修改端口或释放占用。"
     fi
 
-    # 建立系统级 CLI 软链接方便 SSH 终端直接使用 lucky 命令行工具
-    ln -sf "$CORE_BIN" /usr/bin/lucky 2>/dev/null
-    ln -sf "$CORE_BIN" /usr/sbin/lucky 2>/dev/null
-    ln -sf "$CORE_BIN" /usr/local/bin/lucky 2>/dev/null
+    # 建立系统级 CLI 智能分发包装器，自动识别配置目录并保持向下兼容
+    deploy_cli_wrapper() {
+        local target_link="$1"
+        local target_dir=$(dirname "$target_link")
+        [ ! -d "$target_dir" ] && return 0
+        rm -f "$target_link" 2>/dev/null
+        cat << 'EOF' > "$target_link"
+#!/bin/sh
+CONF="/etc/config/qpkg.conf"
+QPKG_ROOT=$(/sbin/getcfg lucky Install_Path -f "$CONF" 2>/dev/null)
+[ -z "$QPKG_ROOT" ] && QPKG_ROOT=$(/sbin/getcfg lucky-wanji Install_Path -f "$CONF" 2>/dev/null)
+[ -z "$QPKG_ROOT" ] && QPKG_ROOT="/share/CACHEDEV1_DATA/.qpkg/lucky"
+
+CORE_BIN="$QPKG_ROOT/lucky"
+[ ! -x "$CORE_BIN" ] && CORE_BIN="$QPKG_ROOT/lucky_wanji"
+[ ! -x "$CORE_BIN" ] && CORE_BIN="$QPKG_ROOT/x86_64/lucky"
+[ ! -x "$CORE_BIN" ] && CORE_BIN="$QPKG_ROOT/x86_64/lucky_wanji"
+[ ! -x "$CORE_BIN" ] && CORE_BIN="$QPKG_ROOT/arm_64/lucky"
+[ ! -x "$CORE_BIN" ] && CORE_BIN="$QPKG_ROOT/arm_64/lucky_wanji"
+
+if [ ! -x "$CORE_BIN" ]; then
+    echo "Error: lucky binary not found or not executable in $QPKG_ROOT." >&2
+    exit 1
+fi
+
+CONF_DIR="$QPKG_ROOT/conf"
+[ ! -d "$CONF_DIR" ] && CONF_DIR="$QPKG_ROOT"
+
+HAS_CD=0
+for arg in "$@"; do
+    case "$arg" in
+        -cd|-cd=*|-c|-c=*)
+            HAS_CD=1
+            break
+            ;;
+    esac
+done
+
+if [ "$HAS_CD" -eq 0 ] && [ -d "$CONF_DIR" ]; then
+    exec "$CORE_BIN" -cd "$CONF_DIR" "$@"
+else
+    exec "$CORE_BIN" "$@"
+fi
+EOF
+        chmod +x "$target_link" 2>/dev/null
+    }
+
+    deploy_cli_wrapper /usr/bin/lucky
+    deploy_cli_wrapper /usr/sbin/lucky
+    deploy_cli_wrapper /usr/local/bin/lucky
 
     # 挂载 Web 管理面板软链接至 QTS Apache 根目录
     ensure_web_symlinks
@@ -250,8 +301,18 @@ case "$1" in
         touch /etc/config/qpkg.conf 2>/dev/null
     fi
 
-    # 启动 Lucky 核心进程（前台转后台，并指定持久化配置目录）
-    eval "\"$CORE_BIN\" -cd \"$CONF_DIR\" >> \"$LOG_FILE\" 2>&1 &"
+    # 检测二进制是否支持 -pathBrowserRoot（确保与旧版 v2.x 向下兼容）
+    EXTRA_ARGS=""
+    if "$CORE_BIN" -h 2>&1 | grep -q -- "-pathBrowserRoot"; then
+        EXTRA_ARGS="-pathBrowserRoot /share"
+    fi
+
+    # 启动 Lucky 核心进程（前台转后台，完全脱钩控制终端，指定持久化配置目录）
+    if which setsid >/dev/null 2>&1; then
+        setsid "$CORE_BIN" -cd "$CONF_DIR" $EXTRA_ARGS </dev/null >> "$LOG_FILE" 2>&1 &
+    else
+        "$CORE_BIN" -cd "$CONF_DIR" $EXTRA_ARGS </dev/null >> "$LOG_FILE" 2>&1 &
+    fi
 
     # 弹性微循环探测进程就绪，杜绝固定 sleep 1 在低配 CPU 误判或快启动无谓阻塞
     STARTED=0
@@ -266,6 +327,12 @@ case "$1" in
 
     if [ "$STARTED" -eq 1 ]; then
         CURRENT_PID=$(cat "$PID_FILE" 2>/dev/null)
+        # 预先固化可读的基础配置镜像，并兼容同步 lucky_base.lkcf 读权限给 Web 面板
+        if [ -x "$CORE_BIN" ] && [ -d "$CONF_DIR" ]; then
+            "$CORE_BIN" -baseConfInfo -cd "$CONF_DIR" > "$CONF_DIR/.base_conf.json" 2>/dev/null || true
+            chmod 666 "$CONF_DIR/.base_conf.json" 2>/dev/null || true
+            chmod 644 "$CONF_DIR/lucky_base.lkcf" 2>/dev/null || true
+        fi
         log_sys "Lucky 服务已成功启动 (PID: $CURRENT_PID)"
         echo "$QPKG_NAME started successfully (PID: $CURRENT_PID)."
     else

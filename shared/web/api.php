@@ -126,24 +126,44 @@ if ($action === 'get_status') {
     }
     $info_data['BuildVersion'] = $build_version;
 
-    // 3. 获取 lucky -baseConfInfo
+    // 3. 获取 lucky -baseConfInfo (多层兼容回退机制)
     $base_conf = [
         'AdminWebListenPort' => 16601,
         'SafeURL' => ''
     ];
-    if (file_exists($core_bin) && is_dir($conf_dir)) {
-        $conf_raw = shell_exec("\"$core_bin\" -baseConfInfo -cd \"$conf_dir\" 2>/dev/null");
-        if (!empty($conf_raw)) {
-            // 提取第一行有效 JSON
-            foreach (explode("\n", $conf_raw) as $line) {
-                $line = trim($line);
-                if (strpos($line, '{"BaseConfigure"') !== false) {
-                    $c_decoded = json_decode($line, true);
-                    if (isset($c_decoded['BaseConfigure'])) {
-                        $base_conf = array_merge($base_conf, $c_decoded['BaseConfigure']);
+    $base_cache_file = "$conf_dir/.base_conf.json";
+    $conf_raw = "";
+    if (file_exists($core_bin)) {
+        // 优先带 -cd 读取，若失败则回退至不带 -cd 读取（兼容旧版或无 conf 目录布局）
+        if (is_dir($conf_dir)) {
+            $conf_raw = shell_exec("\"$core_bin\" -baseConfInfo -cd \"$conf_dir\" 2>/dev/null");
+        }
+        if (empty($conf_raw)) {
+            $conf_raw = shell_exec("\"$core_bin\" -baseConfInfo 2>/dev/null");
+        }
+    }
+
+    // 若命令行受权限拦截或二进制缺失，回退至本地固化的镜像缓存
+    if (empty($conf_raw) && file_exists($base_cache_file)) {
+        $conf_raw = @file_get_contents($base_cache_file);
+    }
+
+    if (!empty($conf_raw)) {
+        // 提取第一行有效 JSON
+        foreach (explode("\n", $conf_raw) as $line) {
+            $line = trim($line);
+            if (strpos($line, '{"BaseConfigure"') !== false) {
+                $c_decoded = json_decode($line, true);
+                if (isset($c_decoded['BaseConfigure'])) {
+                    $base_conf = array_merge($base_conf, $c_decoded['BaseConfigure']);
+                    // 尝试刷新本地缓存（具备目录权限时原子更新，否则直接写入已有文件）
+                    if (is_writable($conf_dir)) {
+                        atomic_write_file($base_cache_file, $conf_raw, 0666);
+                    } elseif (file_exists($base_cache_file) && is_writable($base_cache_file)) {
+                        @file_put_contents($base_cache_file, $conf_raw, LOCK_EX);
                     }
-                    break;
                 }
+                break;
             }
         }
     }
@@ -153,12 +173,23 @@ if ($action === 'get_status') {
     $mem_usage = "0.0 MB";
     $uptime = "--";
     if ($is_running && !empty($current_pid)) {
+        // 优先读取 /proc/$pid/status (纯文件读取，零 fork 开销，兼容 BusyBox 嵌入式环境)
+        if (file_exists("/proc/$current_pid/status")) {
+            $status_txt = @file_get_contents("/proc/$current_pid/status");
+            if (preg_match('/VmRSS:\s+(\d+)\s+kB/i', $status_txt, $vm)) {
+                $mem_mb = round(intval($vm[1]) / 1024, 1);
+                $mem_usage = $mem_mb . " MB";
+            }
+        }
+        // 尝试解析 ps 输出
         $ps_out = shell_exec("ps -p $current_pid -o %cpu,%mem,etime 2>/dev/null | tail -n 1");
         if ($ps_out) {
             $parts = preg_split('/\s+/', trim($ps_out));
             if (count($parts) >= 3) {
                 $cpu_usage = $parts[0] . "%";
-                $mem_usage = $parts[1] . "%";
+                if ($mem_usage === "0.0 MB") {
+                    $mem_usage = $parts[1] . "%";
+                }
                 $uptime = $parts[2];
             }
         }
@@ -208,6 +239,8 @@ if ($action === 'get_status') {
         'status' => 'success',
         'is_running' => $is_running,
         'pid' => $current_pid,
+        'cpu_usage' => $cpu_usage,
+        'mem_usage' => $mem_usage,
         'uptime' => $uptime,
         'info' => $info_data,
         'config' => $base_conf,
