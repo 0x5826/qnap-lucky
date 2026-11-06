@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       target_version:
-        description: '指定构建版本（留空则自动生成修订版本，例如 2.27.2-20260928）'
+        description: '指定构建版本（留空则自动生成修订版本，例如 3.7.1-20261107）'
         required: false
         default: ''
       force_build:
@@ -49,7 +49,7 @@ jobs:
           set -e
 
           # 1. 本地基准版本
-          BASE_VER="$(cat shared/version 2>/dev/null || echo '2.27.2')"
+          BASE_VER="$(cat shared/version 2>/dev/null || echo '3.7.1')"
           BASE_VER="${BASE_VER#v}"
           BUILD_DATE=$(date +'%Y%m%d')
           MMDD=$(date +'%m%d')
@@ -86,9 +86,16 @@ jobs:
             echo "触发模式: 手动触发 -> 生成构建版本: $TAG_NAME"
           elif [[ "$EVENT" == "schedule" ]]; then
             echo "触发模式: 每周定时巡检上游官方版本..."
-            UPSTREAM_TAG=$(gh release view -R gdy666/lucky --json tagName -q .tagName 2>/dev/null || curl -sSL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/gdy666/lucky/releases/latest" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || true)
-            if [ -n "$UPSTREAM_TAG" ]; then
+            UPSTREAM_VER=""
+            # 优先从官方发布站 release.66666.host 获取最新版本
+            HOST_VER=$(curl -sSL --connect-timeout 5 -m 10 "https://release.66666.host/" 2>/dev/null | grep -o 'href="./v[^"]*"' | sed -E 's/.*href="\.\/v([^"/]+).*/\1/' | sort -V | tail -n 1 || true)
+            if [ -n "$HOST_VER" ]; then
+              UPSTREAM_VER="$HOST_VER"
+            else
+              UPSTREAM_TAG=$(gh release view -R gdy666/lucky --json tagName -q .tagName 2>/dev/null || curl -sSL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/gdy666/lucky/releases/latest" 2>/dev/null | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 || true)
               UPSTREAM_VER="${UPSTREAM_TAG#v}"
+            fi
+            if [ -n "$UPSTREAM_VER" ]; then
               echo "官方最新版本: $UPSTREAM_VER (本地基准: $BASE_VER)"
               if [ "$UPSTREAM_VER" != "$BASE_VER" ]; then
                 TARGET_VER="$UPSTREAM_VER"
@@ -99,7 +106,7 @@ jobs:
                 echo "当前已与官方最新版本保持一致，本次巡检无需构建。"
               fi
             else
-              echo "未能获取到官方最新 Release Tag，跳过构建。"
+              echo "未能获取到官方最新 Release 版本，跳过构建。"
             fi
           fi
 

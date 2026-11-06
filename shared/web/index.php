@@ -578,7 +578,7 @@
         <div class="header-left">
             <img src="static/logo.png" class="official-logo" alt="Lucky">
             <div class="title-meta">
-                <h1>Lucky <span class="badge-version" id="headerVersion">v2.27.2-20260928</span></h1>
+                <h1>Lucky <span class="badge-version" id="headerVersion">v3.7.1-20261107</span></h1>
                 <span class="app-subtitle">软硬路由与公网穿透管理平台</span>
             </div>
         </div>

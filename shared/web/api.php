@@ -121,8 +121,8 @@ if ($action === 'get_status') {
         $build_version = trim(file_get_contents($build_ver_file));
     }
     if (empty($build_version)) {
-        $core_ver = !empty($info_data['Version']) ? $info_data['Version'] : '2.27.2';
-        $build_version = $core_ver . '-20260928';
+        $core_ver = !empty($info_data['Version']) ? $info_data['Version'] : '3.7.1';
+        $build_version = $core_ver . '-20261107';
     }
     $info_data['BuildVersion'] = $build_version;
 

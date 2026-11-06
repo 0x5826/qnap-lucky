@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="${1:-2.27.2}"
+VERSION="${1:-3.7.1}"
 VERSION="${VERSION#v}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,7 +65,7 @@ download_and_extract \
 download_and_extract \
     "lucky_${VERSION}_Linux_x86_64_wanji.tar.gz" \
     "${BASE_URL}/${VERSION}_wanji/lucky_${VERSION}_Linux_x86_64_wanji.tar.gz" \
-    "" \
+    "${GH_BASE_URL}/lucky_${VERSION}_Linux_x86_64_wanji.tar.gz" \
     "lucky" \
     "$ROOT_DIR/x86_64/lucky_wanji"
 
@@ -73,7 +73,7 @@ download_and_extract \
 download_and_extract \
     "lucky_${VERSION}_Linux_arm64_wanji.tar.gz" \
     "${BASE_URL}/${VERSION}_wanji/lucky_${VERSION}_Linux_arm64_wanji.tar.gz" \
-    "" \
+    "${GH_BASE_URL}/lucky_${VERSION}_Linux_arm64_wanji.tar.gz" \
     "lucky" \
     "$ROOT_DIR/arm_64/lucky_wanji"
 

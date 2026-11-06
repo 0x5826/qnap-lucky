@@ -1,7 +1,7 @@
 QPKG_NAME="lucky-wanji"
 QPKG_DISPLAY_NAME="Lucky (全功能版)"
 QPKG_DIR=""
-QPKG_VER="2.27.2"
+QPKG_VER="3.7.1"
 QPKG_AUTHOR="Dante | 简介：软硬路由与公网穿透神器 | 官网：https://lucky666.cn"
 QPKG_CATEGORY="Utilities"
 QPKG_SUMMARY="Lucky 全功能万吉版：集成 Coraza WAF、FileBrowser、rclone、Cloudflare Tunnel、gRPC 反代、DDNS 与端口转发。"
